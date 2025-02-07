@@ -48,11 +48,6 @@ func LU(_ A: [[Double]]) -> ([[Double]], [[Double]]) {
         }
     }
 
-    print("L")
-    print(L)
-    print("U")
-    print(U)
-
     return (L, U)
 }
 
@@ -70,16 +65,10 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
             }
         }
 
-        print("Q[i][k],dot",i)
-        print(Q[i],dot)
-
         for k in 0..<4 {
             Y[i][k] = Q[i][k] - dot[k]
         }
     }
-
-    print("Y")
-    print(Y)
 
     // 後退代入 U * X = Y
     for i in stride(from: 3, through: 0, by: -1) {
@@ -88,24 +77,16 @@ func eqSolve(_ A: [[Double]], _ Q: [[Double]]) -> [[Double]] {
             U[i][i] = 1e-8
         }
         var dot:[Double] = [0, 0, 0]
-        print("dot")
         for j in stride(from: 3, through: i+1, by: -1) {
             for k in 0..<3 {
-                print(U[i][j],X[j][k])
                 dot[k] += U[i][j] * X[j][k]
             }
         }
-        print(dot)
         for k in 0..<3 {
             X[i][k] = (Y[i][k] - dot[k]) / U[i][i]
         }
-        print("X",i)
-        print(X)
     }
 
-    print("X")
-    print(X)
-    
     return X
 }
 
@@ -132,16 +113,7 @@ func affineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
     }
     Q.append([0, 0, 0, 0])
 
-    print("P")
-    print(P)
-    print("Q")
-    print(Q)
-
     let eqSolveMatrix:[[Double]] = matrixMul4x4(eqSolve(matrixMul4x4(P.transpose4x4, P), P.transpose4x4), Q)
-    print("eqSolve(matrixMul4x4(P.transpose4x4, P), P.transpose4x4)")
-    print(eqSolve(matrixMul4x4(P.transpose4x4, P), P.transpose4x4))
-    print("eqSolveMatrix")
-    print(eqSolveMatrix)
     var affineMatrix:[[Double]] = eqSolveMatrix.transpose4x4
     affineMatrix[3][3] = 1.0
 
