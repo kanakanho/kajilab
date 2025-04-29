@@ -3,3 +3,5 @@
 *.MOV
 *.mp4
 *.aep
+
+**/__pycache__/**
