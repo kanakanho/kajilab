@@ -217,7 +217,7 @@ func polar(_ M: simd_double3x3) -> (simd_double3x3,simd_double3x3) {
     return (u,p)
 }
 
-func removeScaleAffineMatrix(_ matrix: [[Double]]) -> [[Double]] {
+func removeScaleAffineMatrix(_ matrix: [[Double]]) -> ([Double],[[Double]]) {
     // 3x3 部分行列 (回転 + スケーリング)
     let M = simd_double3x3(
         SIMD3<Double>(matrix[0][0], matrix[1][0], matrix[2][0]),
@@ -237,30 +237,68 @@ func removeScaleAffineMatrix(_ matrix: [[Double]]) -> [[Double]] {
         }
     }
 
-    return newMatrix
+    // スケーリングを計算
+    var scale = [Double](repeating: 0, count: 3)
+    for i in 0..<3 {
+        scale[i] = sqrt(pow(matrix[i][0], 2) + pow(matrix[i][1], 2) + pow(matrix[i][2], 2))
+    }
+
+    return (scale,newMatrix)
 }
 
-func rotation(axis: String, _ world_hand_arrows_shfit: [[Double]], _ affineMatrix: [[Double]]) -> [[Double]] {
-    var arrows_shift:[Double] = []
+func rotation(axis: String, _ mine_hand_arrows_shift: [[Double]] ,_ world_hand_arrows_shfit: [[Double]], _ affineMatrix: [[Double]], _ scale: [Double]) -> [[Double]] {
+    var world_arrows_shift:[Double] = []
     switch axis {
     case "x":
-        arrows_shift = world_hand_arrows_shfit[1]
+        world_arrows_shift = world_hand_arrows_shfit[1]
     case "y":
-        arrows_shift = world_hand_arrows_shfit[2]
+        world_arrows_shift = world_hand_arrows_shfit[2]
     case "z":
-        arrows_shift = world_hand_arrows_shfit[3]
+        world_arrows_shift = world_hand_arrows_shfit[3]
     default:
         return[]
     }
 
-    if arrows_shift.count != 3 {
-        print("Error: arrows_shift must be 3 elements")
+    // 正規化
+    for i in 0..<3 {
+        world_arrows_shift[i] = world_arrows_shift[i] / sqrt(pow(world_arrows_shift[0], 2) + pow(world_arrows_shift[1], 2) + pow(world_arrows_shift[2], 2))
+    }
+
+    var mine_arrows_shift:[Double] = []
+    switch axis {
+    case "x":
+        mine_arrows_shift = mine_hand_arrows_shift[1]
+    case "y":
+        mine_arrows_shift = mine_hand_arrows_shift[2]
+    case "z":
+        mine_arrows_shift = mine_hand_arrows_shift[3]
+    default:
+        return[]
+    }
+
+    // 正規化
+    for i in 0..<3 {
+        mine_arrows_shift[i] = mine_arrows_shift[i] / sqrt(pow(mine_arrows_shift[0], 2) + pow(mine_arrows_shift[1], 2) + pow(mine_arrows_shift[2], 2))
+    }
+
+    if world_arrows_shift.count != 3 {
+        print("Error: world_arrows_shift must be 3 elements")
         return []
     }
 
-    print("arrows_shift: \(arrows_shift)")
+    if mine_arrows_shift.count != 3 {
+        print("Error: mine_arrows_shift must be 3 elements")
+        return []
+    }
 
-    let theta_x = asin(arrows_shift[0])
+    print("world_arrows_shift: \(world_arrows_shift)")
+    print("mine_arrows_shift: \(mine_arrows_shift)")
+
+    var theta_x = asin(world_arrows_shift[0])
+    if axis == "x" {
+        let mine_theta_x = asin(mine_arrows_shift[0])
+        theta_x = mine_theta_x - theta_x
+    }
     let theta_x_rotation = [
         [1, 0, 0, 0],
         [0, cos(theta_x), -sin(theta_x), 0],
@@ -268,7 +306,11 @@ func rotation(axis: String, _ world_hand_arrows_shfit: [[Double]], _ affineMatri
         [0, 0, 0, 1]
     ]
 
-    let theta_y = asin(arrows_shift[1])
+    var theta_y = asin(world_arrows_shift[1])
+    if axis == "y" {
+        let mine_theta_y = asin(mine_arrows_shift[1])
+        theta_y = mine_theta_y - theta_y
+    }
     let theta_y_rotation = [
         [cos(theta_y), 0, sin(theta_y), 0],
         [0, 1, 0, 0],
@@ -276,7 +318,11 @@ func rotation(axis: String, _ world_hand_arrows_shfit: [[Double]], _ affineMatri
         [0, 0, 0, 1]
     ]
 
-    let theta_z = asin(arrows_shift[2])
+    var theta_z = asin(world_arrows_shift[2])
+    if axis == "z" {
+        let mine_theta_z = asin(mine_arrows_shift[2])
+        theta_z = mine_theta_z - theta_z
+    }
     let theta_z_rotation = [
         [cos(theta_z), -sin(theta_z), 0, 0],
         [sin(theta_z), cos(theta_z), 0, 0],
@@ -291,17 +337,58 @@ func rotation(axis: String, _ world_hand_arrows_shfit: [[Double]], _ affineMatri
     print("theta_z: \(theta_z)")
     print("theta_z_rotation: \(theta_z_rotation)")
 
+    let scaleMatrix = [
+        [scale[0], 0, 0, 0],
+        [0, scale[1], 0, 0],
+        [0, 0, scale[2], 0],
+        [0, 0, 0, 1]
+    ]
+
+    // let rotationMatrix = matmul(matmul(matmul(scaleMatrix,theta_x_rotation), theta_y_rotation), theta_z_rotation)
+    let rotationMatrix = matmul(matmul(theta_x_rotation, theta_y_rotation), theta_z_rotation)
     switch axis {
     case "x":
-        return matmul(affineMatrix,theta_y_rotation)
+        let returnAffineMatrix = matmul(matmul(matmul(affineMatrix,theta_x_rotation), theta_y_rotation), theta_z_rotation)
+        return returnAffineMatrix
     case "y":
-        return matmul(matmul(matmul(affineMatrix, theta_z_rotation), theta_y_rotation), theta_x_rotation)
+        let returnAffineMatrix = matmul(matmul(matmul(affineMatrix,theta_x_rotation), theta_y_rotation), theta_z_rotation)
+        return returnAffineMatrix
     case "z":
-        return matmul(affineMatrix, theta_y_rotation)
+        let returnAffineMatrix = matmul(matmul(matmul(affineMatrix,theta_x_rotation), theta_y_rotation), theta_z_rotation)
+        return returnAffineMatrix
     default:
         return []
     }
 }
+//     switch axis {
+//     case "x":
+//         let returnAffineMatrix = [
+//             [rotationMatrix[0][0], rotationMatrix[0][1], rotationMatrix[0][2], affineMatrix[0][3]],
+//             [rotationMatrix[1][0], rotationMatrix[1][1], rotationMatrix[1][2], affineMatrix[1][3]],
+//             [rotationMatrix[2][0], rotationMatrix[2][1], rotationMatrix[2][2], affineMatrix[2][3]],
+//             [0, 0, 0, 1]
+//         ]
+//         return returnAffineMatrix
+//     case "y":
+//         let returnAffineMatrix = [
+//             [rotationMatrix[0][0], rotationMatrix[0][1], rotationMatrix[0][2], affineMatrix[0][3]],
+//             [rotationMatrix[1][0], rotationMatrix[1][1], rotationMatrix[1][2], affineMatrix[1][3]],
+//             [rotationMatrix[2][0], rotationMatrix[2][1], rotationMatrix[2][2], affineMatrix[2][3]],
+//             [0, 0, 0, 1]
+//         ]
+//         return returnAffineMatrix
+//     case "z":
+//         let returnAffineMatrix = [
+//             [rotationMatrix[0][0], rotationMatrix[0][1], rotationMatrix[0][2], affineMatrix[0][3]],
+//             [rotationMatrix[1][0], rotationMatrix[1][1], rotationMatrix[1][2], affineMatrix[1][3]],
+//             [rotationMatrix[2][0], rotationMatrix[2][1], rotationMatrix[2][2], affineMatrix[2][3]],
+//             [0, 0, 0, 1]
+//         ]
+//         return returnAffineMatrix
+//     default:
+//         return []
+//     }
+// }
 
 func matmul4x4_4x1(_ A: [[Double]], _ B: [Double]) -> [Double] {
     var result = [Double](repeating: 0, count: 4)
@@ -314,68 +401,137 @@ func matmul4x4_4x1(_ A: [[Double]], _ B: [Double]) -> [Double] {
     return result
 }
 
-func shiftRotateAffineMatrix(_ A: [[[Double]]],_ B: [[[Double]]],_ affineMatrix: [[Double]]) -> [[Double]] {
-    print("B_right_arrows:")
-    print(B[0][0][3], B[0][1][3], B[0][2][3])
-    let B_right_potion: [Double] = [B[0][0][3], B[0][1][3], B[0][2][3]]
-    let B_right_arrows: [[Double]] = [
-        B_right_potion,
-        [B_right_potion[0] + 1, B_right_potion[1], B_right_potion[2]],
-        [B_right_potion[0], B_right_potion[1] + 1, B_right_potion[2]],
-        [B_right_potion[0], B_right_potion[1], B_right_potion[2] + 1]
+// func shiftRotateAffineMatrix(_ A: [[[Double]]],_ B: [[[Double]]],_ affineMatrix: [[Double]]) -> [[Double]] {
+//     print("B_right_arrows:")
+//     print(B[0][0][3], B[0][1][3], B[0][2][3])
+//     let B_right_potion: [Double] = [B[0][0][3], B[0][1][3], B[0][2][3]]
+//     let B_right_arrows: [[Double]] = [
+//         B_right_potion,
+//         [B_right_potion[0] + 1, B_right_potion[1], B_right_potion[2]],
+//         [B_right_potion[0], B_right_potion[1] + 1, B_right_potion[2]],
+//         [B_right_potion[0], B_right_potion[1], B_right_potion[2] + 1]
+//     ]
+
+//     var A_to_B_right_arrows: [[Double]] = []
+//     for i in 0..<4 {
+//         A_to_B_right_arrows.append(matmul4x4_4x1(affineMatrix, B_right_arrows[i]))
+//     }
+
+//     // 位置を補正する
+//     let shift_value: [Double] = {
+//         var shift_value: [Double] = []
+//         for i in 0..<3 {
+//             shift_value.append(A_to_B_right_arrows[0][i] - B_right_arrows[0][i])
+//         }
+//         return shift_value
+//     }()
+
+//     print("shift_value: \(shift_value)")
+
+
+//     let B_right_arrows_shift_value: [Double] = [
+//         [B_right_arrows[0][0] - shift_value[0], B_right_arrows[0][1] - shift_value[1], B_right_arrows[0][2] - shift_value[2]],
+//         [B_right_arrows[1][0] - shift_value[0], B_right_arrows[1][1] - shift_value[1], B_right_arrows[1][2] - shift_value[2]],
+//         [B_right_arrows[2][0] - shift_value[0], B_right_arrows[2][1] - shift_value[1], B_right_arrows[2][2] - shift_value[2]],
+//         [B_right_arrows[3][0] - shift_value[0], B_right_arrows[3][1] - shift_value[1], B_right_arrows[3][2] - shift_value[2]]
+//     ]
+//     print("B_right_arrows_shift_value: \(B_right_arrows_shift_value)")
+//     let B_right_arrows_shift: [[Double]] = [
+//         [B_right_arrows_shift_value[0][0] - B_right_arrows_shift_value[0][0], B_right_arrows_shift_value[0][1] - B_right_arrows_shift_value[0][1], B_right_arrows_shift_value[0][2] - B_right_arrows_shift_value[0][2]],
+//         [B_right_arrows_shift_value[1][0] - B_right_arrows_shift_value[0][0], B_right_arrows_shift_value[1][1] - B_right_arrows_shift_value[0][1], B_right_arrows_shift_value[1][2] - B_right_arrows_shift_value[0][2]],
+//         [B_right_arrows_shift_value[2][0] - B_right_arrows_shift_value[0][0], B_right_arrows_shift_value[2][1] - B_right_arrows_shift_value[0][1], B_right_arrows_shift_value[2][2] - B_right_arrows_shift_value[0][2]],
+//         [B_right_arrows_shift_value[3][0] - B_right_arrows_shift_value[0][0], B_right_arrows_shift_value[3][1] - B_right_arrows_shift_value[0][1], B_right_arrows_shift_value[3][2] - B_right_arrows_shift_value[0][2]]
+//     ]
+
+//     // let A_right_arrows_shift: [[Double]] = [
+//     //     [A_right_arrows[0][0] - shift_value[0], A_right_arrows[0][1] - shift_value[1], A_right_arrows[0][2] - shift_value[2]],
+//     //     [A_right_arrows[1][0] - shift_value[0], A_right_arrows[1][1] - shift_value[1], A_right_arrows[1][2] - shift_value[2]],
+//     //     [A_right_arrows[2][0] - shift_value[0], A_right_arrows[2][1] - shift_value[1], A_right_arrows[2][2] - shift_value[2]],
+//     //     [A_right_arrows[3][0] - shift_value[0], A_right_arrows[3][1] - shift_value[1], A_right_arrows[3][2] - shift_value[2]]
+//     // ]
+
+//     let A_to_B_right_arrows_shift_value: [[Double]] = [
+//         [A_to_B_right_arrows[0][0] - shift_value[0], A_to_B_right_arrows[0][1] - shift_value[1], A_to_B_right_arrows[0][2] - shift_value[2]],
+//         [A_to_B_right_arrows[1][0] - shift_value[0], A_to_B_right_arrows[1][1] - shift_value[1], A_to_B_right_arrows[1][2] - shift_value[2]],
+//         [A_to_B_right_arrows[2][0] - shift_value[0], A_to_B_right_arrows[2][1] - shift_value[1], A_to_B_right_arrows[2][2] - shift_value[2]],
+//         [A_to_B_right_arrows[3][0] - shift_value[0], A_to_B_right_arrows[3][1] - shift_value[1], A_to_B_right_arrows[3][2] - shift_value[2]]
+//     ]
+
+//     let A_to_B_right_arrows_shift: [[Double]] = [
+//         [A_to_B_right_arrows_shift_value[0][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[0][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[0][2] - A_to_B_right_arrows_shift_value[0][2]],
+//         [A_to_B_right_arrows_shift_value[1][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[1][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[1][2] - A_to_B_right_arrows_shift_value[0][2]],
+//         [A_to_B_right_arrows_shift_value[2][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[2][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[2][2] - A_to_B_right_arrows_shift_value[0][2]],
+//         [A_to_B_right_arrows_shift_value[3][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[3][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[3][2] - A_to_B_right_arrows_shift_value[0][2]]
+//     ]
+
+//     print("A_to_B_right_arrows_shift: \(A_to_B_right_arrows_shift)")
+
+//     print("client_right_arrows_shift")
+//     print(B_right_arrows_shift)
+//     print("A_to_B_right_arrows_shift")
+//     print(A_to_B_right_arrows_shift)
+
+//     let y_base_rotate_affine_matrix = rotation(axis: "y", B_right_arrows_shift, A_to_B_right_arrows_shift, affineMatrix)
+//     print("y_base_rotate_affine_matrix: \(y_base_rotate_affine_matrix)")
+//     let z_base_rotate_affine_matrix = rotation(axis: "z", B_right_arrows_shift, A_to_B_right_arrows_shift, y_base_rotate_affine_matrix)
+//     print("z_base_rotate_affine_matrix: \(z_base_rotate_affine_matrix)")
+//     let x_base_rotate_affine_matrix = rotation(axis: "x", B_right_arrows_shift, A_to_B_right_arrows_shift, z_base_rotate_affine_matrix)
+//     print("x_base_rotate_affine_matrix: \(x_base_rotate_affine_matrix)")
+//     return x_base_rotate_affine_matrix
+// }
+
+func affineMatrixToAngle(_ matrix: [[Double]]) -> (Double, Double, Double) {
+    let x = atan2(matrix[2][1], matrix[2][2])
+    let y = atan2(-matrix[2][0], sqrt(pow(matrix[2][1], 2) + pow(matrix[2][2], 2)))
+    let z = atan2(matrix[1][0], matrix[0][0])
+    return (x, y, z)
+}
+
+func shiftRotateAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]], _ affineMatrix: [[Double]], _ scale: [Double]) -> [[Double]] {
+    // Bの位置を取得
+    let B_pos = [B[0][0][3], B[0][1][3], B[0][2][3]]
+    print("B_pos:", B_pos)
+
+    let (x,y,z) = affineMatrixToAngle(B[0])
+    print("x: \(x), y: \(y), z: \(z)")
+
+    // B基準の単位ベクトル群（+X, +Y, +Z 方向）
+    let B_vectors: [[Double]] = [
+        B_pos,
+        [B_pos[0] + cos(x), B_pos[1] + cos(y), B_pos[2] + cos(z)],
+        [B_pos[0] + cos(z), B_pos[1] + cos(x), B_pos[2] + cos(y)],
+        [B_pos[0] + cos(y), B_pos[1] + cos(z), B_pos[2] + cos(x)]
     ]
 
-    print("B_right_arrows: \(B_right_arrows)")
+    // affineMatrixでB_vectorsをA空間に変換
+    let transformedVectors = B_vectors.map { matmul4x4_4x1(affineMatrix, $0) }
 
-    var A_to_B_right_arrows: [[Double]] = []
-    for i in 0..<4 {
-        A_to_B_right_arrows.append(matmul4x4_4x1(affineMatrix, B_right_arrows[i]))
-    }
+    // シフト量（最初の点の差）
+    let shift = zip(transformedVectors[0], B_vectors[0]).map { $0 - $1 }
+    print("shift_value: \(shift)")
 
-    print("B_right_arrows: \(B_right_arrows)")
-    print("A_to_B_right_arrows: \(A_to_B_right_arrows)")
+    // B側ベクトルを原点相対にシフト
+    let shifted_B_vectors = B_vectors.map { zip($0, shift).map(-) }
+    let B_origin = shifted_B_vectors[0]
+    let B_relative = shifted_B_vectors.map { zip($0, B_origin).map(-) }
 
-    // 位置を補正する
-    let shift_value: [Double] = {
-        var shift_value: [Double] = []
-        for i in 0..<3 {
-            shift_value.append(A_to_B_right_arrows[0][i] - B_right_arrows[0][i])
-        }
-        return shift_value
-    }()
+    // A側も同様にシフト
+    let shifted_transformed = transformedVectors.map { zip($0, shift).map(-) }
+    let A_origin = shifted_transformed[0]
+    let A_relative = shifted_transformed.map { zip($0, A_origin).map(-) }
 
-    print("shift_value: \(shift_value)")
+    print("client_right_arrows_shift")
+    print(B_relative)
+    print("A_to_B_right_arrows_shift")
+    print(A_relative)
 
-    // let A_right_arrows_shift: [[Double]] = [
-    //     [A_right_arrows[0][0] - shift_value[0], A_right_arrows[0][1] - shift_value[1], A_right_arrows[0][2] - shift_value[2]],
-    //     [A_right_arrows[1][0] - shift_value[0], A_right_arrows[1][1] - shift_value[1], A_right_arrows[1][2] - shift_value[2]],
-    //     [A_right_arrows[2][0] - shift_value[0], A_right_arrows[2][1] - shift_value[1], A_right_arrows[2][2] - shift_value[2]],
-    //     [A_right_arrows[3][0] - shift_value[0], A_right_arrows[3][1] - shift_value[1], A_right_arrows[3][2] - shift_value[2]]
-    // ]
-
-    let A_to_B_right_arrows_shift_value: [[Double]] = [
-        [A_to_B_right_arrows[0][0] - shift_value[0], A_to_B_right_arrows[0][1] - shift_value[1], A_to_B_right_arrows[0][2] - shift_value[2]],
-        [A_to_B_right_arrows[1][0] - shift_value[0], A_to_B_right_arrows[1][1] - shift_value[1], A_to_B_right_arrows[1][2] - shift_value[2]],
-        [A_to_B_right_arrows[2][0] - shift_value[0], A_to_B_right_arrows[2][1] - shift_value[1], A_to_B_right_arrows[2][2] - shift_value[2]],
-        [A_to_B_right_arrows[3][0] - shift_value[0], A_to_B_right_arrows[3][1] - shift_value[1], A_to_B_right_arrows[3][2] - shift_value[2]]
-    ]
-
-    let A_to_B_right_arrows_shift: [[Double]] = [
-        [A_to_B_right_arrows_shift_value[0][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[0][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[0][2] - A_to_B_right_arrows_shift_value[0][2]],
-        [A_to_B_right_arrows_shift_value[1][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[1][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[1][2] - A_to_B_right_arrows_shift_value[0][2]],
-        [A_to_B_right_arrows_shift_value[2][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[2][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[2][2] - A_to_B_right_arrows_shift_value[0][2]],
-        [A_to_B_right_arrows_shift_value[3][0] - A_to_B_right_arrows_shift_value[0][0], A_to_B_right_arrows_shift_value[3][1] - A_to_B_right_arrows_shift_value[0][1], A_to_B_right_arrows_shift_value[3][2] - A_to_B_right_arrows_shift_value[0][2]]
-    ]
-
-    print("A_to_B_right_arrows_shift: \(A_to_B_right_arrows_shift)")
-
-    let y_base_rotate_affine_matrix = rotation(axis: "y", A_to_B_right_arrows_shift, affineMatrix)
-    print("y_base_rotate_affine_matrix: \(y_base_rotate_affine_matrix)")
-    let z_base_rotate_affine_matrix = rotation(axis: "z", A_to_B_right_arrows_shift, y_base_rotate_affine_matrix)
-    print("z_base_rotate_affine_matrix: \(z_base_rotate_affine_matrix)")
-    let x_base_rotate_affine_matrix = rotation(axis: "x", A_to_B_right_arrows_shift, z_base_rotate_affine_matrix)
-    print("x_base_rotate_affine_matrix: \(x_base_rotate_affine_matrix)")
-    return x_base_rotate_affine_matrix
+    // 回転補正（Y→Z→Xの順）
+    let yMatrix = rotation(axis: "y", B_relative, A_relative, affineMatrix, scale)
+    let zMatrix = rotation(axis: "z", B_relative, A_relative, yMatrix, scale)
+    let xMatrix = rotation(axis: "x", B_relative, A_relative, zMatrix, scale)
+    
+    print("x_base_rotate_affine_matrix: \(yMatrix)")
+    return xMatrix
 }
 
 /*
@@ -422,10 +578,11 @@ func calcAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]]) -> [[Double]] {
 
     print("affineMatrix: \(affineMatrix)")
 
-    affineMatrix = removeScaleAffineMatrix(affineMatrix)
+    var scale:[Double] = []
+    (scale,affineMatrix) = removeScaleAffineMatrix(affineMatrix)
     print("removeScaleAffineMatrix: \(affineMatrix)")
 
-    affineMatrix = shiftRotateAffineMatrix(A, B, affineMatrix)
+    affineMatrix = shiftRotateAffineMatrix(A, B, affineMatrix,scale)
     print("shiftRotateAffineMatrix: \(affineMatrix)")
 
     return affineMatrix
@@ -579,4 +736,165 @@ print(A)
 print("B:")
 print(B)
 
-print(calcAffineMatrix(A, B))
+print(calcAffineMatrix(B, A))
+
+
+// A→B
+
+// [
+//     [0.8234028818339483, 0.3406729136720514, 0.45381676927780434, -2.0181527769650393e-08], 
+//     [-0.47324061674935164, 0.8535613365054046, 0.21789071453781766, -1.231948541288296e-09], 
+//     [-0.31313098352964397, -0.3941763700595236, 0.8640451240765469, -3.5171395390954616e-09], 
+//     [0.0, 0.0, 0.0, 1.0]
+// ]
+
+// B→A
+
+// [
+//     [0.8577224767900956, 0.24158329989589972, 0.4538167714182363, 1.4552181874656285e-08], 
+//     [-0.09354161160825158, 0.9413171935921485, -0.32430218615595646, 1.0223272097819658e-08], 
+//     [-0.505531521971474, 0.23571052216481425, 0.8299870059428615, 4.1242520584012065e-09], 
+//     [0.0, 0.0, 0.0, 1.0]
+// ]
+
+
+let AA =  [
+        [
+            [
+                0.5562306642532349,
+                0.5555832386016846,
+                -0.618008553981781,
+                -0.24337060749530792,
+            ],
+            [
+                -0.6506398320198059,
+                0.7537873983383179,
+                0.09204696118831635,
+                0.7893363237380981,
+            ],
+            [
+                0.5169867277145386,
+                0.35090163350105286,
+                0.780764102935791,
+                -0.5038592219352722,
+            ],
+            [0.0, 0.0, 0.0, 1.0000001192092896],
+        ],
+        [
+            [
+                -0.4974305033683777,
+                -0.31042829155921936,
+                -0.8100600242614746,
+                -0.39988118410110474,
+            ],
+            [
+                0.7428818345069885,
+                -0.6346402764320374,
+                -0.2129741758108139,
+                0.7015295624732971,
+            ],
+            [
+                -0.4479835033416748,
+                -0.7077187299728394,
+                0.5463011860847473,
+                -0.3203715980052948,
+            ],
+            [0.0, 0.0, 0.0, 0.9999997615814209],
+        ],
+        [
+            [
+                0.1541898101568222,
+                0.5248171091079712,
+                -0.8371332287788391,
+                -0.06998009979724884,
+            ],
+            [
+                -0.6118054986000061,
+                0.7160078883171082,
+                0.33619382977485657,
+                0.6919271349906921,
+            ],
+            [
+                0.7758345007896423,
+                0.4603252410888672,
+                0.43148720264434814,
+                -0.5652991533279419,
+            ],
+            [0.0, 0.0, 0.0, 0.9999996423721313],
+        ],
+    ]
+
+let BB = [
+        [
+            [
+                0.8661612868309021,
+                0.361994206905365,
+                -0.34456488490104675,
+                -0.416620671749115,
+            ],
+            [
+                -0.3561864495277405,
+                0.930767834186554,
+                0.08247461915016174,
+                0.9175246953964233,
+            ],
+            [
+                0.3505653142929077,
+                0.05129300057888031,
+                0.9351325035095215,
+                -0.3071862459182739,
+            ],
+            [0.0, 0.0, 0.0, 0.9999997615814209],
+        ],
+        [
+            [
+                0.6101363897323608,
+                0.47927841544151306,
+                -0.6308925747871399,
+                -0.27676621079444885,
+            ],
+            [
+                -0.39316582679748535,
+                0.8744770884513855,
+                0.28409498929977417,
+                0.8279070854187012,
+            ],
+            [
+                0.6878619194030762,
+                0.07470865547657013,
+                0.7219863533973694,
+                -0.5423091053962708,
+            ],
+            [0.0, 0.0, 0.0, 0.9999997615814209],
+        ],
+        [
+            [
+                -0.785858154296875,
+                -0.19526691734790802,
+                -0.586769163608551,
+                -0.5836778879165649,
+            ],
+            [
+                0.5389275550842285,
+                -0.6815949082374573,
+                -0.49496009945869446,
+                0.8163708448410034,
+            ],
+            [
+                -0.30328965187072754,
+                -0.7051944136619568,
+                0.6408713459968567,
+                -0.20289365947246552,
+            ],
+            [0.0, 0.0, 0.0, 0.9999998807907104],
+        ],
+    ]
+
+print("A:")
+print(A)
+print("B:")
+print(B)
+
+print(calcAffineMatrix(B, A))
+
+
