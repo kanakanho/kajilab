@@ -527,11 +527,11 @@ func shiftRotateAffineMatrix(_ A: [[[Double]]], _ B: [[[Double]]], _ affineMatri
 
     // 回転補正（Y→Z→Xの順）
     let yMatrix = rotation(axis: "y", B_relative, A_relative, affineMatrix, scale)
-    let zMatrix = rotation(axis: "z", B_relative, A_relative, yMatrix, scale)
-    let xMatrix = rotation(axis: "x", B_relative, A_relative, zMatrix, scale)
+    // let zMatrix = rotation(axis: "z", B_relative, A_relative, yMatrix, scale)
+    // let xMatrix = rotation(axis: "x", B_relative, A_relative, zMatrix, scale)
     
-    print("x_base_rotate_affine_matrix: \(yMatrix)")
-    return xMatrix
+    // print("x_base_rotate_affine_matrix: \(yMatrix)")
+    return yMatrix
 }
 
 /*
